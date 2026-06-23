@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workfloor - Real-Time Team Management</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/SheetJS/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-firestore.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #f8f9fa;
+      --bg-surface: #fff;
+      --border: #e0e4e8;
+      --ink: #1a1a1a;
+      --ink-soft: #555;
+      --accent: #2563eb;
+      --accent-deep: #1d4ed8;
+      --success: #16a34a;
+      --success-soft: #f0fdf4;
+      --danger: #dc2626;
+      --danger-soft: #fef2f2;
+      --warn: #d97706;
+      --warn-soft: #fffbeb;
+    }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); line-height: 1.5; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+    header { background: var(--bg-surface); border-bottom: 1px solid var(--border); padding: 16px 0; margin-bottom: 20px; }
+    .header-content { max-width: 1200px; margin: 0 auto; padding: 0 16px; display: flex; justify-content: space-between; align-items: center; }
+    .logo { font-size: 24px; font-weight: 700; color: var(--accent); }
+    .header-right { display: flex; gap: 12px; align-items: center; }
+    .status-badge { font-size: 12px; padding: 4px 8px; border-radius: 4px; background: var(--success-soft); color: var(--success); border: 1px solid var(--success); }
+    .status-badge.offline { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+    .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.2s; }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-deep); }
+    .btn-secondary { background: var(--bg); color: var(--ink); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--border); }
+    .btn-sm { padding: 6px 12px; font-size: 13px; }
+    .btn-success { background: var(--success); color: white; }
+    .btn-danger { background: var(--danger); color: white; }
+    .modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal.active { display: flex; }
+    .modal-content { background: var(--bg-surface); border-radius: 12px; padding: 24px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; }
+    .modal-header { font-size: 20px; font-weight: 600; margin-bottom: 16px; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--ink); }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
+    .form-group textarea { resize: vertical; min-height: 100px; }
+    .tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .tab { padding: 12px 16px; cursor: pointer; border: none; background: none; font-size: 14px; font-weight: 500; color: var(--ink-soft); border-bottom: 3px solid transparent; transition: all 0.2s; }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+    .task-item { background: var(--bg-surface); border-left: 4px solid var(--accent); padding: 12px; margin-bottom: 8px; border-radius: 4px; cursor: pointer; }
+    .task-item.done { opacity: 0.6; border-left-color: var(--success); }
+    .task-item.overdue { border-left-color: var(--danger); }
+    .task-title { font-weight: 600; margin-bottom: 4px; }
+    .task-meta { font-size: 12px; color: var(--ink-soft); }
+    .attendance-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+    .attendance-cell { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px; text-align: center; font-size: 12px; }
+    .attendance-cell.present { background: var(--success-soft); border-color: var(--success); color: var(--success); font-weight: 600; }
+    .attendance-cell.absent { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); font-weight: 600; }
+    .timer { font-size: 24px; font-weight: 700; font-family: 'Courier New', monospace; padding: 12px; background: var(--bg); border-radius: 6px; text-align: center; margin: 8px 0; }
+    .alert { padding: 12px; border-radius: 6px; margin-bottom: 12px; font-size: 14px; }
+    .alert-success { background: var(--success-soft); color: var(--success); border: 1px solid var(--success); }
+    .alert-danger { background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger); }
+    .alert-warning { background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+    input[type="checkbox"] { cursor: pointer; }
+    .employee-badge { display: inline-block; padding: 4px 8px; background: var(--accent); color: white; border-radius: 4px; font-size: 12px; margin-right: 8px; }
+    .subtask { margin-left: 20px; padding-left: 12px; border-left: 2px solid var(--border); }
+    .subhead { font-size: 16px; font-weight: 600; margin-top: 16px; margin-bottom: 12px; }
+    .foot-note { font-size: 12px; color: var(--ink-soft); text-align: center; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .login-container { max-width: 400px; margin: 100px auto; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; padding: 32px; text-align: center; }
+    .login-logo { font-size: 32px; font-weight: 700; color: var(--accent); margin-bottom: 24px; }
+    .login-subtitle { color: var(--ink-soft); margin-bottom: 24px; }
+    .role-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .role-btn { padding: 12px; border: 2px solid var(--border); background: var(--bg-surface); border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+    .role-btn:hover { border-color: var(--accent); }
+    .role-btn.selected { border-color: var(--accent); background: var(--accent); color: white; }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN MODAL -->
+<div id="loginModal" class="modal active">
+  <div class="login-container">
+    <div class="login-logo">⚙️ Workfloor</div>
+    <div class="login-subtitle">Real-Time Team Management</div>
+    <div class="form-group" style="text-align: left;">
+      <label>Login As:</label>
+      <div class="role-buttons">
+        <button class="role-btn" id="roleManagerBtn" onclick="selectRole('manager')">👔 Manager</button>
+        <button class="role-btn" id="roleEmployeeBtn" onclick="selectRole('employee')">👤 Employee</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" id="loginUsername" placeholder="Enter username" onkeypress="if(event.key==='Enter') doLogin()">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="loginPassword" placeholder="Enter password" onkeypress="if(event.key==='Enter') doLogin()">
+    </div>
+    <button class="btn btn-primary" style="width: 100%; margin-top: 12px;" onclick="doLogin()">Login</button>
+    <div id="loginError" class="alert alert-danger" style="display: none; margin-top: 12px;"></div>
+    <p style="font-size: 12px; margin-top: 16px; color: var(--ink-soft);">
+      Demo: <br>
+      Manager: admin / admin<br>
+      Employee: john / 123
+    </p>
+    <div id="firebaseStatus" style="font-size: 12px; margin-top: 12px; padding: 8px; background: var(--bg); border-radius: 4px;">
+      🔄 Loading Firebase...
+    </div>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="mainApp" style="display: none;">
+  <header>
+    <div class="header-content">
+      <div class="logo">⚙️ Workfloor</div>
+      <div class="header-right">
+        <div class="status-badge" id="syncStatus">🔄 Syncing...</div>
+        <span id="userDisplay" style="font-size: 14px; font-weight: 600;"></span>
+        <button class="btn btn-secondary btn-sm" onclick="doLogout()">Logout</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- TABS -->
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+      <button class="tab" onclick="switchTab('tasks')">📋 Tasks</button>
+      <button class="tab" onclick="switchTab('attendance')">📅 Attendance</button>
+      <button class="tab" onclick="switchTab('documents')">📄 Documents</button>
+      <button class="tab" onclick="switchTab('training')">🎓 Training</button>
+      <button class="tab" onclick="switchTab('settings')">⚙️ Settings</button>
+    </div>
+
+    <!-- DASHBOARD TAB -->
+    <div id="dashboard" class="tab-content active">
+      <div class="subhead">Today's Overview</div>
+      <div class="grid">
+        <div class="card">
+          <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">Active Tasks</div>
+          <div style="font-size: 32px; font-weight: 700; color: var(--accent);" id="activeTaskCount">0</div>
+        </div>
+        <div class="card">
+          <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">Team Members</div>
+          <div style="font-size: 32px; font-weight: 700; color: var(--success);" id="teamMemberCount">0</div>
+        </div>
+        <div class="card">
+          <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">Present Today</div>
+          <div style="font-size: 32px; font-weight: 700; color: var(--warn);" id="presentCount">0</div>
+        </div>
+      </div>
+      <div class="subhead">Recent Activity</div>
+      <div id="recentActivity" style="max-height: 400px; overflow-y: auto;"></div>
+    </div>
+
+    <!-- TASKS TAB -->
+    <div id="tasks" class="tab-content">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="subhead">Tasks</div>
+        <button class="btn btn-primary btn-sm" id="addTaskBtn" onclick="openAddTaskModal()" style="display: none;">+ New Task</button>
+      </div>
+      <div id="tasksList"></div>
+    </div>
+
+    <!-- ATTENDANCE TAB -->
+    <div id="attendance" class="tab-content">
+      <div class="subhead">Attendance</div>
+      <div style="margin-bottom: 16px;" id="attendanceManager" style="display: none;">
+        <select id="attendanceDate" style="padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 12px;">
+          <option value="">Select Date</option>
+        </select>
+        <div id="attendanceList" class="attendance-grid"></div>
+      </div>
+      <div id="attendanceEmployee">
+        <div style="margin-bottom: 16px;">
+          <label style="font-weight: 600; margin-right: 12px;">Mark attendance for today:</label>
+          <select id="attendanceStatus">
+            <option value="">Select Status</option>
+            <option value="present">Present</option>
+            <option value="absent">Absent</option>
+            <option value="leave">Leave</option>
+            <option value="half-day">Half Day</option>
+          </select>
+          <button class="btn btn-success btn-sm" style="margin-left: 8px;" onclick="submitAttendance()">Submit</button>
+        </div>
+        <div id="myAttendanceHistory"></div>
+      </div>
+    </div>
+
+    <!-- DOCUMENTS TAB -->
+    <div id="documents" class="tab-content">
+      <div class="subhead">Documents</div>
+      <div id="documentsManagerSection" style="display: none; margin-bottom: 20px;">
+        <div style="padding: 12px; background: var(--warn-soft); border: 1px solid var(--warn); border-radius: 6px; margin-bottom: 12px;">
+          <input type="file" id="docUpload" accept=".pdf,.jpg,.jpeg,.png" style="margin-bottom: 8px;">
+          <input type="text" id="docName" placeholder="Document name" style="padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; width: 100%; margin-bottom: 8px;">
+          <button class="btn btn-primary btn-sm" onclick="uploadDocument()">Upload Document</button>
+        </div>
+      </div>
+      <div id="documentsList"></div>
+    </div>
+
+    <!-- TRAINING TAB -->
+    <div id="training" class="tab-content">
+      <div class="subhead">Training Guides</div>
+      <div id="trainingList"></div>
+    </div>
+
+    <!-- SETTINGS TAB -->
+    <div id="settings" class="tab-content">
+      <div class="subhead">Settings</div>
+      <div class="card">
+        <div style="font-weight: 600; margin-bottom: 12px;">User Information</div>
+        <div style="font-size: 14px; margin-bottom: 8px;"><strong>Name:</strong> <span id="settingsName"></span></div>
+        <div style="font-size: 14px; margin-bottom: 8px;"><strong>Role:</strong> <span id="settingsRole"></span></div>
+        <div style="font-size: 14px; margin-bottom: 8px;"><strong>Login Time:</strong> <span id="settingsLoginTime"></span></div>
+      </div>
+      <div class="card">
+        <div style="font-weight: 600; margin-bottom: 12px;">Export Data</div>
+        <button class="btn btn-secondary" onclick="exportToExcel()">📊 Export to Excel</button>
+      </div>
+      <div class="card" id="managerSettingsCard" style="display: none;">
+        <div style="font-weight: 600; margin-bottom: 12px;">Employees</div>
+        <div id="employeesList"></div>
+        <button class="btn btn-primary btn-sm" style="margin-top: 12px;" onclick="openAddEmployeeModal()">+ Add Employee</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot-note">
+    Workfloor v2 with Firebase • Real-time collaboration • <a href="https://github.com" target="_blank">GitHub Pages hosted</a>
+  </div>
+</div>
+
+<!-- ADD TASK MODAL -->
+<div id="addTaskModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">New Task</div>
+    <div class="form-group">
+      <label>Task Name</label>
+      <input type="text" id="taskName" placeholder="Task name">
+    </div>
+    <div class="form-group">
+      <label>Assign To</label>
+      <select id="taskAssignee"></select>
+    </div>
+    <div class="form-group">
+      <label>Due Date</label>
+      <input type="date" id="taskDueDate">
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <textarea id="taskDescription" placeholder="Task description"></textarea>
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <button class="btn btn-primary" onclick="createTask()">Create Task</button>
+      <button class="btn btn-secondary" onclick="closeAddTaskModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD EMPLOYEE MODAL -->
+<div id="addEmployeeModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">Add Employee</div>
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" id="empName" placeholder="Employee name">
+    </div>
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" id="empUsername" placeholder="Username">
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="empPassword" placeholder="Password">
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="empEmail" placeholder="Email">
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <button class="btn btn-primary" onclick="addEmployee()">Add Employee</button>
+      <button class="btn btn-secondary" onclick="closeAddEmployeeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================
+// FIREBASE CONFIGURATION
+// ============================================
+// PASTE YOUR FIREBASE CONFIG HERE - Replace the entire firebaseConfig object
+const firebaseConfig = {
+  apiKey: "AIzaSyBdgdaxS_y1FcLAP8NppkjcSmlUHmG9E4A",
+  authDomain: "ixora-employee.firebaseapp.com",
+  projectId: "ixora-employee",
+  storageBucket: "ixora-employee.firebasestorage.app",
+  messagingSenderId: "705677656708",
+  appId: "1:705677656708:web:337353173f0bcdcdb338d1"
+};
+
+// Initialize Firebase
+let db = null;
+let initError = null;
+
+try {
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+  console.log('✓ Firebase initialized successfully');
+  document.getElementById('firebaseStatus').innerHTML = '✓ Firebase connected';
+} catch (err) {
+  initError = 'Firebase config missing or invalid. Check Settings for instructions.';
+  document.getElementById('firebaseStatus').innerHTML = '❌ ' + initError;
+  console.error('Firebase init error:', err);
+}
+
+// ============================================
+// STATE MANAGEMENT
+// ============================================
+let currentUser = null;
+let currentRole = null;
+let employees = [];
+let tasks = [];
+let attendance = {};
+let documents = [];
+let unsubscribers = [];
+
+// ============================================
+// FIREBASE LISTENERS - Real-time sync
+// ============================================
+function setupRealtimeListeners() {
+  if (!db) return;
+  
+  // Unsubscribe from previous listeners
+  unsubscribers.forEach(unsub => unsub());
+  unsubscribers = [];
+  
+  // Listen to employees
+  unsubscribers.push(
+    db.collection('employees').onSnapshot(snap => {
+      employees = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      updateUI();
+    })
+  );
+  
+  // Listen to tasks
+  unsubscribers.push(
+    db.collection('tasks').onSnapshot(snap => {
+      tasks = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      updateUI();
+    })
+  );
+  
+  // Listen to attendance
+  unsubscribers.push(
+    db.collection('attendance').onSnapshot(snap => {
+      attendance = {};
+      snap.docs.forEach(d => {
+        attendance[d.id] = d.data();
+      });
+      updateUI();
+    })
+  );
+  
+  // Listen to documents
+  unsubscribers.push(
+    db.collection('documents').onSnapshot(snap => {
+      documents = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      updateUI();
+    })
+  );
+  
+  updateSyncStatus(true);
+}
+
+// ============================================
+// AUTHENTICATION
+// ============================================
+let selectedRole = null;
+
+function selectRole(role) {
+  selectedRole = role;
+  document.getElementById('roleManagerBtn').classList.toggle('selected', role === 'manager');
+  document.getElementById('roleEmployeeBtn').classList.toggle('selected', role === 'employee');
+}
+
+async function doLogin() {
+  if (!db) {
+    alert('Firebase not configured. Paste your config in the HTML file first.');
+    return;
+  }
+  
+  if (!selectedRole) {
+    alert('Please select a role');
+    return;
+  }
+  
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value.trim();
+  const errorEl = document.getElementById('loginError');
+  
+  if (!username || !password) {
+    errorEl.textContent = 'Please enter username and password';
+    errorEl.style.display = 'block';
+    return;
+  }
+  
+  try {
+    // Check credentials against Firestore
+    const emp = employees.find(e => e.username === username && e.password === password && e.role === selectedRole);
+    
+    if (!emp && !(username === 'admin' && password === 'admin' && selectedRole === 'manager')) {
+      errorEl.textContent = 'Invalid credentials';
+      errorEl.style.display = 'block';
+      return;
+    }
+    
+    // Create demo admin user if needed
+    if (username === 'admin' && password === 'admin' && selectedRole === 'manager') {
+      currentUser = { id: 'admin', name: 'Admin Manager', username: 'admin', role: 'manager' };
+    } else {
+      currentUser = emp;
+    }
+    
+    currentRole = selectedRole;
+    errorEl.style.display = 'none';
+    document.getElementById('loginModal').classList.remove('active');
+    document.getElementById('mainApp').style.display = 'block';
+    setupRealtimeListeners();
+    updateUI();
+  } catch (err) {
+    errorEl.textContent = 'Error: ' + err.message;
+    errorEl.style.display = 'block';
+  }
+}
+
+function doLogout() {
+  unsubscribers.forEach(unsub => unsub());
+  unsubscribers = [];
+  currentUser = null;
+  currentRole = null;
+  document.getElementById('mainApp').style.display = 'none';
+  document.getElementById('loginModal').classList.add('active');
+  document.getElementById('loginUsername').value = '';
+  document.getElementById('loginPassword').value = '';
+}
+
+// ============================================
+// UI UPDATES
+// ============================================
+function switchTab(tabName) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById(tabName).classList.add('active');
+}
+
+function updateUI() {
+  if (!currentUser) return;
+  
+  // Update user display
+  document.getElementById('userDisplay').textContent = `${currentUser.name} (${currentRole})`;
+  document.getElementById('settingsName').textContent = currentUser.name;
+  document.getElementById('settingsRole').textContent = currentRole.toUpperCase();
+  document.getElementById('settingsLoginTime').textContent = new Date().toLocaleString();
+  
+  // Manager-only features
+  const isManager = currentRole === 'manager';
+  document.getElementById('addTaskBtn').style.display = isManager ? 'block' : 'none';
+  document.getElementById('documentsManagerSection').style.display = isManager ? 'block' : 'none';
+  document.getElementById('managerSettingsCard').style.display = isManager ? 'block' : 'none';
+  
+  // Employee-specific features
+  if (!isManager) {
+    document.getElementById('attendanceManager').style.display = 'none';
+    document.getElementById('attendanceEmployee').style.display = 'block';
+  } else {
+    document.getElementById('attendanceManager').style.display = 'block';
+    document.getElementById('attendanceEmployee').style.display = 'none';
+  }
+  
+  // Update dashboard
+  const activeTasks = tasks.filter(t => !t.done).length;
+  document.getElementById('activeTaskCount').textContent = activeTasks;
+  document.getElementById('teamMemberCount').textContent = employees.length;
+  
+  let presentCount = 0;
+  const today = new Date().toISOString().split('T')[0];
+  employees.forEach(emp => {
+    const empAtt = attendance[emp.id] || {};
+    if (empAtt[today] && empAtt[today].status === 'present') presentCount++;
+  });
+  document.getElementById('presentCount').textContent = presentCount;
+  
+  // Update tasks list
+  updateTasksList();
+  
+  // Update attendance
+  updateAttendanceUI();
+  
+  // Update documents
+  updateDocumentsList();
+  
+  // Update employees list
+  updateEmployeesList();
+}
+
+function updateTasksList() {
+  const container = document.getElementById('tasksList');
+  const userTasks = currentRole === 'manager' ? tasks : tasks.filter(t => t.assignee === currentUser.id);
+  
+  if (userTasks.length === 0) {
+    container.innerHTML = '<div style="text-align: center; color: var(--ink-soft); padding: 20px;">No tasks</div>';
+    return;
+  }
+  
+  container.innerHTML = userTasks.map(task => `
+    <div class="task-item ${task.done ? 'done' : ''} ${new Date(task.dueDate) < new Date() ? 'overdue' : ''}">
+      <div class="task-title">${task.name}</div>
+      <div class="task-meta">
+        Due: ${new Date(task.dueDate).toLocaleDateString()} | 
+        Assigned to: ${employees.find(e => e.id === task.assignee)?.name || 'Unknown'}
+      </div>
+      ${currentRole === 'employee' ? `
+        <div style="margin-top: 8px; display: flex; gap: 8px;">
+          <input type="checkbox" ${task.done ? 'checked' : ''} onchange="updateTask('${task.id}', {done: this.checked})">
+          <span style="font-size: 12px;">Mark as done</span>
+        </div>
+      ` : ''}
+    </div>
+  `).join('');
+}
+
+function updateAttendanceUI() {
+  const today = new Date().toISOString().split('T')[0];
+  
+  if (currentRole === 'manager') {
+    // Manager view
+    const dateSelect = document.getElementById('attendanceDate');
+    dateSelect.innerHTML = `<option value="">Select Date</option>` + 
+      Array.from({length: 30}, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().split('T')[0];
+        return `<option value="${dateStr}">${dateStr}</option>`;
+      }).join('');
+    
+    dateSelect.onchange = () => {
+      const selected = dateSelect.value || today;
+      const list = document.getElementById('attendanceList');
+      list.innerHTML = employees.map(emp => {
+        const status = (attendance[emp.id] || {})[selected]?.status || 'not-marked';
+        const statusClass = status === 'present' ? 'present' : status === 'absent' ? 'absent' : '';
+        return `
+          <div class="attendance-cell ${statusClass}">
+            <div style="font-weight: 600; font-size: 13px;">${emp.name}</div>
+            <div>${status}</div>
+          </div>
+        `;
+      }).join('');
+    };
+    dateSelect.dispatchEvent(new Event('change'));
+  } else {
+    // Employee view
+    const myAtt = attendance[currentUser.id] || {};
+    const myStatus = myAtt[today]?.status;
+    document.getElementById('attendanceStatus').value = myStatus || '';
+    
+    const history = document.getElementById('myAttendanceHistory');
+    const last7 = Array.from({length: 7}, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      return d.toISOString().split('T')[0];
+    });
+    
+    history.innerHTML = '<div style="font-weight: 600; margin-bottom: 8px;">Last 7 Days</div>' + last7.map(date => {
+      const status = myAtt[date]?.status || '-';
+      return `<div style="padding: 6px; font-size: 13px; border-bottom: 1px solid var(--border);">${date}: <strong>${status}</strong></div>`;
+    }).join('');
+  }
+}
+
+function updateDocumentsList() {
+  const container = document.getElementById('documentsList');
+  if (documents.length === 0) {
+    container.innerHTML = '<div style="text-align: center; color: var(--ink-soft); padding: 20px;">No documents uploaded</div>';
+    return;
+  }
+  
+  container.innerHTML = documents.map(doc => `
+    <div class="card">
+      <div style="font-weight: 600; margin-bottom: 8px;">${doc.name}</div>
+      <div style="font-size: 12px; color: var(--ink-soft); margin-bottom: 8px;">Uploaded: ${new Date(doc.uploadedAt).toLocaleDateString()}</div>
+      <a href="${doc.url}" target="_blank" class="btn btn-secondary btn-sm">View Document</a>
+    </div>
+  `).join('');
+}
+
+function updateEmployeesList() {
+  const container = document.getElementById('employeesList');
+  if (employees.length === 0) {
+    container.innerHTML = '<div style="color: var(--ink-soft);">No employees yet</div>';
+    return;
+  }
+  
+  container.innerHTML = employees.map(emp => `
+    <div style="padding: 8px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between;">
+      <div>
+        <div style="font-weight: 600;">${emp.name}</div>
+        <div style="font-size: 12px; color: var(--ink-soft);">${emp.username} • ${emp.email}</div>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="deleteEmployee('${emp.id}')">Delete</button>
+    </div>
+  `).join('');
+}
+
+// ============================================
+// TASK MANAGEMENT
+// ============================================
+function openAddTaskModal() {
+  document.getElementById('addTaskModal').classList.add('active');
+  const select = document.getElementById('taskAssignee');
+  select.innerHTML = employees.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+}
+
+function closeAddTaskModal() {
+  document.getElementById('addTaskModal').classList.remove('active');
+}
+
+async function createTask() {
+  const name = document.getElementById('taskName').value.trim();
+  const assignee = document.getElementById('taskAssignee').value;
+  const dueDate = document.getElementById('taskDueDate').value;
+  const description = document.getElementById('taskDescription').value.trim();
+  
+  if (!name || !dueDate) {
+    alert('Please fill all required fields');
+    return;
+  }
+  
+  try {
+    await db.collection('tasks').add({
+      name,
+      assignee,
+      dueDate,
+      description,
+      done: false,
+      createdBy: currentUser.id,
+      createdAt: new Date()
+    });
+    
+    closeAddTaskModal();
+    document.getElementById('taskName').value = '';
+    document.getElementById('taskDueDate').value = '';
+    document.getElementById('taskDescription').value = '';
+  } catch (err) {
+    alert('Error creating task: ' + err.message);
+  }
+}
+
+async function updateTask(taskId, updates) {
+  try {
+    await db.collection('tasks').doc(taskId).update(updates);
+  } catch (err) {
+    alert('Error updating task: ' + err.message);
+  }
+}
+
+// ============================================
+// ATTENDANCE MANAGEMENT
+// ============================================
+async function submitAttendance() {
+  const status = document.getElementById('attendanceStatus').value;
+  if (!status) {
+    alert('Please select attendance status');
+    return;
+  }
+  
+  const today = new Date().toISOString().split('T')[0];
+  
+  try {
+    const ref = db.collection('attendance').doc(currentUser.id);
+    const doc = await ref.get();
+    const current = doc.data() || {};
+    current[today] = { status, submittedAt: new Date().toISOString() };
+    await ref.set(current);
+    alert('Attendance submitted successfully');
+  } catch (err) {
+    alert('Error submitting attendance: ' + err.message);
+  }
+}
+
+// ============================================
+// DOCUMENT MANAGEMENT
+// ============================================
+async function uploadDocument() {
+  const file = document.getElementById('docUpload').files[0];
+  const name = document.getElementById('docName').value.trim();
+  
+  if (!file || !name) {
+    alert('Please select file and enter name');
+    return;
+  }
+  
+  // For demo, create a data URL (in production, use Cloud Storage)
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      await db.collection('documents').add({
+        name,
+        url: e.target.result,
+        uploadedBy: currentUser.id,
+        uploadedAt: new Date()
+      });
+      
+      document.getElementById('docUpload').value = '';
+      document.getElementById('docName').value = '';
+      alert('Document uploaded successfully');
+    } catch (err) {
+      alert('Error uploading document: ' + err.message);
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+// ============================================
+// EMPLOYEE MANAGEMENT
+// ============================================
+function openAddEmployeeModal() {
+  document.getElementById('addEmployeeModal').classList.add('active');
+}
+
+function closeAddEmployeeModal() {
+  document.getElementById('addEmployeeModal').classList.remove('active');
+}
+
+async function addEmployee() {
+  const name = document.getElementById('empName').value.trim();
+  const username = document.getElementById('empUsername').value.trim();
+  const password = document.getElementById('empPassword').value.trim();
+  const email = document.getElementById('empEmail').value.trim();
+  
+  if (!name || !username || !password) {
+    alert('Please fill all required fields');
+    return;
+  }
+  
+  try {
+    await db.collection('employees').add({
+      name,
+      username,
+      password,
+      email,
+      role: 'employee',
+      createdAt: new Date()
+    });
+    
+    closeAddEmployeeModal();
+    document.getElementById('empName').value = '';
+    document.getElementById('empUsername').value = '';
+    document.getElementById('empPassword').value = '';
+    document.getElementById('empEmail').value = '';
+    alert('Employee added successfully');
+  } catch (err) {
+    alert('Error adding employee: ' + err.message);
+  }
+}
+
+async function deleteEmployee(empId) {
+  if (!confirm('Are you sure?')) return;
+  
+  try {
+    await db.collection('employees').doc(empId).delete();
+  } catch (err) {
+    alert('Error deleting employee: ' + err.message);
+  }
+}
+
+// ============================================
+// EXPORT & SYNC
+// ============================================
+function exportToExcel() {
+  const ws = XLSX.utils.json_to_sheet(tasks);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
+  XLSX.writeFile(wb, 'workfloor-export.xlsx');
+}
+
+function updateSyncStatus(connected) {
+  const badge = document.getElementById('syncStatus');
+  if (connected) {
+    badge.textContent = '✓ Synced';
+    badge.classList.remove('offline');
+  } else {
+    badge.textContent = '⚠️ Offline';
+    badge.classList.add('offline');
+  }
+}
+
+// ============================================
+// INITIALIZE
+// ============================================
+window.addEventListener('load', () => {
+  selectRole('manager');
+});
+</script>
+</body>
+</html>
